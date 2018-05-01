@@ -47,13 +47,14 @@ void forward(int motor, int throttle);
 void backward(int motor, int throttle);
 void turnleft(int throttle, int direction);
 void turnright(int throttle, int direction); 
-
+void siren(); 
 
 // Global variables
 extern uint8_t packetbuffer[];// the packet buffer
 int throttle = 0; 
-bool fwdflag = 0; 
-bool backflag = 0; 
+bool hit = 0; 
+long duration, dist; 
+
 
 /**************************************************************************/
 /*
@@ -129,6 +130,13 @@ void setup(void)
   pinMode(IN3, OUTPUT); 
   pinMode(IN4, OUTPUT); 
 
+  /* Set up sensor pins */ 
+  pinMode(ECHO, INPUT); 
+  pinMode(TRIG, OUTPUT); 
+
+  /* Buzzer pins */
+  pinMode(BUZZ, OUTPUT);
+
 }
 
 /**************************************************************************/
@@ -143,6 +151,21 @@ void loop(void)
   uint8_t len = readPacket(&ble, BLE_READPACKET_TIMEOUT);
   if (len == 0) return;
 
+  /* Send and accept packet from the ultrasonic sensor */ 
+  digitalWrite(TRIG, LOW);
+  delayMicroseconds(5);
+  digitalWrite(TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG, LOW);
+  duration = pulseIn(ECHO, HIGH);
+
+  // convert the time into a distance
+  dist = (duration / 2) / 29.1;
+  Serial.print(dist); 
+  Serial.print("here's dist");
+  Serial.println(); 
+
+
   // Buttons
   if (packetbuffer[1] == 'B') {
     uint8_t buttnum = packetbuffer[2] - '0';
@@ -151,22 +174,38 @@ void loop(void)
     // set car speed 
     throttle = button2speed(buttnum); 
     Serial.print ("Throttle "); Serial.print(throttle);
+    Serial.println(); 
+    // Warn the user when the car is about to hit something 
+    if (dist < 10) {
+      siren(); 
+      brake(); 
+    } else {
+      digitalWrite(BUZZ, LOW); 
+    }
 
   // Control motor behavior 
     switch (buttnum) 
     {
       case 5:   // front
+        dir = 1;  // set direction forward
         if (pressed) {
-          dir = 1; 
-          forward(1, throttle); 
-          forward(0, throttle);    
+              // If there's a barrier in front of it, brake
+              if (dist < 10) {
+                siren(); 
+                brake(); 
+              } else {
+                forward(1, throttle); 
+                forward(0, throttle);    
+                digitalWrite(BUZZ, LOW); 
+              }
+
         } else {
           brake(); 
         }
         break; 
       case 6:  // back 
+        dir = 0; 
         if (pressed) {
-          dir = 0; 
           backward(1, throttle); 
           backward(0, throttle);
         } else 
@@ -207,10 +246,9 @@ void loop(void)
     Serial.print('\t');
     Serial.print(alt, 4); Serial.println(" meters");
   }
-
 }
 
-
+/* Make specified motor go backward with certain speed */ 
 void backward(int motor, int throttle) 
 {
   // left motor 
@@ -225,6 +263,7 @@ void backward(int motor, int throttle)
   }
 }
 
+/* Make specified motor go forward with certain speed */ 
 void forward(int motor, int throttle) 
 {
   // left motor 
@@ -239,19 +278,21 @@ void forward(int motor, int throttle)
   }
 }
 
+/* Turn left with certain speed in specified direction */ 
 void turnleft(int throttle, int direction)
 {
     driveMotorA(throttle >> 2, direction);
     driveMotorB(throttle, direction); 
 }
 
-
+/* Turn right with certain speed in specified direction */ 
 void turnright(int throttle, int direction)
 {
     driveMotorA(throttle, direction);
     driveMotorB(throttle >> 2, direction); 
 }
 
+/* Steer Motor A in direction with throttle specified */ 
 void driveMotorA(int throttle, int direction)
 {
   if (direction)
@@ -260,6 +301,7 @@ void driveMotorA(int throttle, int direction)
     backward(1, throttle); 
 }
 
+/* Steer Motor B in direction with throttle specified */ 
 void driveMotorB(int throttle, int direction)
 {
   if (direction)
@@ -268,12 +310,15 @@ void driveMotorB(int throttle, int direction)
     backward(0, throttle); 
 }
 
+
+/* Stop the car */ 
 void brake() 
 {
   analogWrite(ENA, 0); 
   analogWrite(ENB, 0); 
 }
 
+/* Convert button number to 4 levels of PWM duty cycles */ 
 int button2speed(uint8_t button)
 {
   switch (button)
@@ -292,4 +337,12 @@ int button2speed(uint8_t button)
       break;
   }
   return (throttle);  
+}
+
+/* Play the sound of a siren */ 
+void siren()
+{
+  tone(3, C4, 100); 
+  tone(3, A5, 100); 
+  tone(3, G4, 100); 
 }
